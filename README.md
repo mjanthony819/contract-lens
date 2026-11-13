@@ -50,7 +50,7 @@ After analysis, each finding and each manual-review item can get a decision: `ac
 
 - A blocking item counts as decided only when it has a status **and** a non-empty note. The gate is OPEN until all of them do.
 - A decision is a human note. `accepted-risk` and `will-migrate` are waivers or plans, not evidence that a migration happened or that the API is compatible. The gate says "PASS (acknowledged, not fixed)", never "compatible".
-- **Save review session** downloads a JSON file with decisions only. Specs are not included. **Load review session** restores it. Decisions whose finding no longer exists in the current comparison are reported as unmatched, not applied.
+- **Save review session** downloads a JSON file with decisions only. Specs are not included, but it carries a SHA-256 fingerprint of the exact parsed baseline and candidate pair. **Load review session** restores the decisions only if the analyzed pair has the same fingerprint. A session from a different pair, or without a fingerprint, is rejected whole, so waivers never transfer between releases that happen to produce similarly worded findings. Editing either spec and re-analyzing clears decisions made for the old pair.
 - Nothing is stored in the browser between visits. Reload clears decisions unless you saved a file.
 - The Markdown migration report includes decisions and gate state.
 
@@ -60,7 +60,7 @@ After analysis, each finding and each manual-review item can get a decision: `ac
 node cli.js baseline.yaml candidate.yaml --fail-on breaking --decisions session.json --format text
 ```
 
-If the session file has decisions that match no finding in this comparison (stale, or from a different release), the CLI exits 2 instead of carrying them over. Exit code 0 means every blocking item is acknowledged (not fixed), 1 means it is open, 2 means an input or session-file error. `--format` is `text`, `json` or `md`. It uses the same engine as the browser, so the same supported-subset limits apply.
+If the session file was saved for a different baseline/candidate pair, has no fingerprint, or has decisions that match no finding, the CLI exits 2 instead of carrying them over. Exit code 0 means every blocking item is acknowledged (not fixed), 1 means it is open, 2 means an input or session-file error. `--format` is `text`, `json` or `md`. It uses the same engine as the browser, so the same supported-subset limits apply.
 
 ## Supported checks
 

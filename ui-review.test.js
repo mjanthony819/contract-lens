@@ -27,7 +27,7 @@ await page.reload();await page.locator('.finding').first().waitFor();assert.matc
 await page.locator('#session-file').setInputFiles(OUT+'/session.json');await page.waitForFunction(()=>/PASS/.test(document.getElementById('gate').innerText));
 assert.equal(await page.locator('.finding:not(.review) .decision input').first().inputValue(),'Ticket API-12');
 // stale: switch candidate to additive release, decisions no longer match
-await page.locator('#scenario').selectOption('safe');assert.match(await gate(),/4 saved decision\(s\) did not match/);
+await page.locator('#scenario').selectOption('safe');await page.locator('#session-file').setInputFiles(OUT+'/session.json');await page.waitForFunction(()=>/different baseline\/candidate pair/.test(document.getElementById('error').innerText));assert.doesNotMatch(await gate(),/saved decision/);
 // bad session file
 await writeFile(OUT+'/bad.json','{"format":"x"}');await page.locator('#session-file').setInputFiles(OUT+'/bad.json');assert.match(await page.locator('#error').innerText(),/Not a Contract Lens review session/);
 // storage: nothing persisted

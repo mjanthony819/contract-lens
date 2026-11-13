@@ -34,6 +34,33 @@ export function releaseGate(report, decisions = {}, policy = 'breaking') {
   return { policy, pass: open.length === 0, blocking: blocking.length, decided: blocking.length - open.length, open: open.map(i => i.label), stale: stale.length, staleKeys: stale };
 }
 
+
+// Binds a session file to the exact parsed spec pair, so waivers never transfer to a different release.
+function sha256(str) {
+  const b = new TextEncoder().encode(str), K = [], H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  for (let n = 2, c = 0; c < 64; n++) { let p = true; for (let i = 2; i * i <= n; i++) if (n % i === 0) { p = false; break } if (p) { K[c++] = (Math.cbrt(n) % 1) * 4294967296 | 0 } }
+  const l = b.length, w = new Uint8Array(((l + 9 + 63) >> 6) << 6); w.set(b); w[l] = 0x80;
+  const dv = new DataView(w.buffer); dv.setUint32(w.length - 8, Math.floor(l * 8 / 4294967296)); dv.setUint32(w.length - 4, (l * 8) >>> 0);
+  const rr = (x, n) => (x >>> n) | (x << (32 - n)), W = new Array(64);
+  for (let o = 0; o < w.length; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) { const a = W[i - 15], c = W[i - 2]; W[i] = (W[i - 16] + (rr(a, 7) ^ rr(a, 18) ^ (a >>> 3)) + W[i - 7] + (rr(c, 17) ^ rr(c, 19) ^ (c >>> 10))) | 0 }
+    let [a, bb, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0, t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & bb) ^ (a & c) ^ (bb & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = bb; bb = a; a = (t1 + t2) | 0;
+    }
+    [a, bb, c, d, e, f, g, h].forEach((v, i) => H[i] = (H[i] + v) | 0);
+  }
+  return H.map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');
+}
+const canon = x => Array.isArray(x) ? '[' + x.map(canon).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canon(x[k])).join(',') + '}' : JSON.stringify(x);
+export const pairFingerprint = (baseline, candidate) => sha256(canon([baseline, candidate]));
+export function requirePair(session, pair) {
+  if (!session.pair) throw Error('Session file has no spec fingerprint. Decisions are not applied.');
+  if (session.pair !== pair) throw Error('This session was saved for a different baseline/candidate pair. Its decisions were not applied. Review this release again.');
+}
+
 export function validateDecisions(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw Error('Decisions must be an object');
   const out = Object.create(null); let n = 0;
@@ -50,13 +77,13 @@ export function validateDecisions(obj) {
 
 export function sessionFile(report, decisions, meta = {}) {
   const keys = new Set(items(report).map(i => i.key)); // unmatched (stale) decisions are never written out
-  return JSON.stringify({ format: 'contract-lens-review', version: 1, baseline: meta.baseline || null, candidate: meta.candidate || null, decisions: Object.fromEntries(Object.entries(decisions).filter(([k]) => keys.has(k))) }, null, 2);
+  return JSON.stringify({ format: 'contract-lens-review', version: 1, pair: meta.pair || null, baseline: meta.baseline || null, candidate: meta.candidate || null, decisions: Object.fromEntries(Object.entries(decisions).filter(([k]) => keys.has(k))) }, null, 2);
 }
 export function parseSession(text) {
   if (new TextEncoder().encode(text).length > MAX_BYTES) throw Error('Session file exceeds 1 MiB limit');
   let o; try { o = JSON.parse(text); } catch { throw Error('Session file is not valid JSON'); }
   if (!o || o.format !== 'contract-lens-review' || o.version !== 1) throw Error('Not a Contract Lens review session (version 1)');
-  return { baseline: o.baseline ?? null, candidate: o.candidate ?? null, decisions: validateDecisions(o.decisions) };
+  return { pair: typeof o.pair === 'string' && /^[0-9a-f]{64}$/.test(o.pair) ? o.pair : null, baseline: o.baseline ?? null, candidate: o.candidate ?? null, decisions: validateDecisions(o.decisions) };
 }
 
 export function reviewMarkdown(report, decisions = {}, policy = 'breaking') {

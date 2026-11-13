@@ -2,7 +2,7 @@
 // Contract Lens CLI: compare two OpenAPI 3.0 files and gate a release. Reads local files only.
 import { readFileSync, statSync } from 'node:fs';
 import { parseSpec, compareSpecs } from './engine.js';
-import { items, releaseGate, parseSession, reviewMarkdown, POLICIES } from './review.js';
+import { items, releaseGate, parseSession, reviewMarkdown, pairFingerprint, requirePair, POLICIES } from './review.js';
 
 const USAGE = 'Usage: node cli.js <baseline.(json|yaml)> <candidate.(json|yaml)> [--fail-on breaking|potential|review] [--decisions session.json] [--format text|json|md]\nExit codes: 0 gate passes, 1 gate open, 2 input error.';
 function read(path) { if (statSync(path).size > 1048576) throw Error(path + ' exceeds 1 MiB limit'); return readFileSync(path, 'utf8'); }
@@ -18,8 +18,9 @@ export function run(argv) {
   if (!POLICIES[opt['fail-on']]) return { code: 2, out: 'Unknown --fail-on value. Use breaking, potential or review.' };
   if (!['text', 'json', 'md'].includes(opt.format)) return { code: 2, out: 'Unknown --format value. Use text, json or md.' };
   try {
-    const report = compareSpecs(parseSpec(read(pos[0])), parseSpec(read(pos[1])));
-    const decisions = opt.decisions ? parseSession(read(opt.decisions)).decisions : {};
+    const specA = parseSpec(read(pos[0])), specB = parseSpec(read(pos[1])), report = compareSpecs(specA, specB);
+    let decisions = {};
+    if (opt.decisions) { const s = parseSession(read(opt.decisions)); requirePair(s, pairFingerprint(specA, specB)); decisions = s.decisions; }
     const gate = releaseGate(report, decisions, opt['fail-on']);
     if (gate.stale) return { code: 2, out: 'Error: ' + gate.stale + ' decision(s) in the session file match no finding in this comparison (stale or for a different release). Regenerate the session; unrelated waivers are not carried over.' };
     let out;

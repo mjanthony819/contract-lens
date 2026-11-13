@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseSpec, compareSpecs } from './engine.js';
 import { oldSpec, breakingSpec, safeSpec, reviewSpec } from './fixtures.js';
-import { items, findingKey, releaseGate, validateDecisions, sessionFile, parseSession, reviewMarkdown } from './review.js';
+import { pairFingerprint, requirePair, items, findingKey, releaseGate, validateDecisions, sessionFile, parseSession, reviewMarkdown } from './review.js';
 import { run } from './cli.js';
 
 const rep = (a, b) => compareSpecs(parseSpec(JSON.stringify(a)), parseSpec(JSON.stringify(b)));
@@ -69,7 +69,7 @@ test('CLI exit codes: 1 open, 0 with decisions, 2 on input errors', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cl-')), a = join(dir, 'a.json'), b = join(dir, 'b.json'), s = join(dir, 's.json'), bad = join(dir, 'bad.json');
   writeFileSync(a, JSON.stringify(oldSpec)); writeFileSync(b, JSON.stringify(breakingSpec)); writeFileSync(bad, 'x: [');
   let r = run([a, b]); assert.equal(r.code, 1); assert.match(r.out, /Gate \(breaking\): OPEN, 4/);
-  writeFileSync(s, sessionFile(breaking(), dec(breaking(), 'tracked')));
+  writeFileSync(s, sessionFile(breaking(), dec(breaking(), 'tracked'), { pair: pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(breakingSpec))) }));
   r = run([a, b, '--decisions', s]); assert.equal(r.code, 0); assert.match(r.out, /PASS/);
   assert.equal(run([a, b, '--format', 'json']).code, 1); assert.equal(JSON.parse(run([a, b, '--format', 'json']).out).gate.open.length, 4);
   assert.match(run([a, b, '--format', 'md']).out, /Release review/);
@@ -81,13 +81,30 @@ test('CLI exit codes: 1 open, 0 with decisions, 2 on input errors', () => {
 
 test('CLI rejects a session with decisions for a different release and labels acknowledged gates honestly', async () => {
   writeFileSync('/tmp/cl-old.json', JSON.stringify(oldSpec)); writeFileSync('/tmp/cl-new.json', JSON.stringify(breakingSpec));
-  writeFileSync('/tmp/cl-stale.json', JSON.stringify({ format: 'contract-lens-review', version: 1, decisions: { 'breaking|GET /nope|x|y': { status: 'accepted-risk', note: 'old waiver' } } }));
+  writeFileSync('/tmp/cl-stale.json', JSON.stringify({ format: 'contract-lens-review', version: 1, pair: pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(breakingSpec))), decisions: { 'breaking|GET /nope|x|y': { status: 'accepted-risk', note: 'old waiver' } } }));
   const r = run(['/tmp/cl-old.json', '/tmp/cl-new.json', '--decisions', '/tmp/cl-stale.json']);
   assert.equal(r.code, 2); assert.match(r.out, /match no finding/);
   const rp = breaking();
   const d = Object.fromEntries(items(rp).map(i => [i.key, { status: 'will-migrate', note: 'planned' }]));
-  writeFileSync('/tmp/cl-ok.json', sessionFile(rp, { ...d, 'x|y|z|w': { status: 'accepted-risk', note: 'stale' } }));
+  writeFileSync('/tmp/cl-ok.json', sessionFile(rp, { ...d, 'x|y|z|w': { status: 'accepted-risk', note: 'stale' } }, { pair: pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(breakingSpec))) }));
   assert.equal(JSON.parse((await import('node:fs')).readFileSync('/tmp/cl-ok.json', 'utf8')).decisions['x|y|z|w'], undefined);
   const ok = run(['/tmp/cl-old.json', '/tmp/cl-new.json', '--decisions', '/tmp/cl-ok.json']);
   assert.equal(ok.code, 0); assert.match(ok.out, /acknowledged, not fixed/);
+});
+
+test('waivers do not transfer to a different spec pair, even when finding text is identical', () => {
+  const p1 = pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(breakingSpec)));
+  const alt = JSON.parse(JSON.stringify(breakingSpec)); alt.components.schemas.OrderInput.properties.quantity.maximum = 5;
+  const p2 = pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(alt)));
+  assert.match(p1, /^[0-9a-f]{64}$/); assert.notEqual(p1, p2);
+  assert.equal(p1, pairFingerprint(parseSpec(JSON.stringify(oldSpec)), parseSpec(JSON.stringify(breakingSpec))));
+  const r1 = breaking(), r2 = rep(oldSpec, alt);
+  assert.equal(findingKey(r1.findings[0]), findingKey(r2.findings[0]), 'same finding text on purpose');
+  const s = parseSession(sessionFile(r1, dec(r1, 'x'), { pair: p1 }));
+  assert.doesNotThrow(() => requirePair(s, p1));
+  assert.throws(() => requirePair(s, p2), /different baseline\/candidate pair/);
+  assert.throws(() => requirePair(parseSession(sessionFile(r1, dec(r1, 'x'))), p1), /no spec fingerprint/);
+  writeFileSync('/tmp/cl-a.json', JSON.stringify(oldSpec)); writeFileSync('/tmp/cl-alt.json', JSON.stringify(alt)); writeFileSync('/tmp/cl-s1.json', sessionFile(r1, dec(r1, 'x'), { pair: p1 }));
+  const out = run(['/tmp/cl-a.json', '/tmp/cl-alt.json', '--decisions', '/tmp/cl-s1.json']);
+  assert.equal(out.code, 2); assert.match(out.out, /different baseline/);
 });
