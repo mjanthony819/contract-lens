@@ -55,3 +55,5 @@ test('validator object required/additional/type/array checks',()=>{assert.equal(
 test('array item narrowing finds a nonempty witness',()=>broken({type:'array',items:{type:'integer',maximum:10}},{type:'array',items:{type:'integer',maximum:5}}));
 test('number to integer without bounds finds fractional witness',()=>broken({type:'number'},{type:'integer'}));
 test('invalid supported constraint requires review',()=>assert.ok(unsupported({type:'string',minLength:-2}).length));
+
+test('response enum title describes candidate expansion',()=>{const r=diff({type:'string',enum:['a']},{type:'string',enum:['a','b']},'response');assert.ok(r.findings[0].message.includes('response enum expanded beyond baseline'))});
