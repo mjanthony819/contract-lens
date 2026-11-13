@@ -4,10 +4,10 @@
   "description": "Browser-local directional OpenAPI 3.0 compatibility workbench",
   "main": "index.js",
   "scripts": {
-    "test": "node --test engine.test.js",
+    "test": "node --test engine.test.js review.test.js",
     "build": "esbuild app.js --bundle --format=esm --minify --outfile=app.bundle.js",
     "serve": "python3 -m http.server 8080",
-    "test:ui": "node ui.test.js"
+    "test:ui": "node ui.test.js && node ui-review.test.js"
   },
   "keywords": [],
   "author": "",
