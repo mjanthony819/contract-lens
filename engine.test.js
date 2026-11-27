@@ -16,6 +16,9 @@ test('response enum narrowing is compatible in checked scope',()=>assert.equal(d
 for(const[k,a,b]of[['minimum',0,5],['maximum',10,5],['minLength',0,2],['maxLength',5,2],['minItems',0,2],['maxItems',4,2]])test('tightening '+k+' finds witness',()=>{const type=k.includes('Length')?'string':k.includes('Items')?'array':'integer';broken({type,[k]:a,...(type==='array'?{items:{type:'integer'}}:{})},{type,[k]:b,...(type==='array'?{items:{type:'integer'}}:{})})});
 test('exclusive minimum detects boundary',()=>broken({type:'number',minimum:0},{type:'number',minimum:0,exclusiveMinimum:true}));
 test('exclusive maximum detects boundary',()=>broken({type:'number',maximum:5},{type:'number',maximum:5,exclusiveMaximum:true}));
+test('lone exclusiveMinimum without a bound is not a finding',()=>assert.equal(diff({type:'number'},{type:'number',exclusiveMinimum:true}).findings.length,0));
+test('lone exclusiveMaximum without a bound is not a finding',()=>assert.equal(diff({type:'number'},{type:'number',exclusiveMaximum:true}).findings.length,0));
+test('response boundary relaxation names the inclusive candidate',()=>{const r=diff({type:'number',minimum:5,exclusiveMinimum:true},{type:'number',minimum:5},'response');assert.equal(r.findings.length,1);assert.ok(r.findings[0].message.includes('inclusive'));assert.equal(r.findings[0].witness,5)});
 test('integer to number widens accepted requests',()=>assert.equal(diff({type:'integer'},{type:'number'}).findings.length,0));
 test('number to integer catches fractional input',()=>broken({type:'number',minimum:0},{type:'integer',minimum:0}));
 test('nullable narrowing catches null',()=>broken({type:'string',nullable:true},{type:'string'}));
